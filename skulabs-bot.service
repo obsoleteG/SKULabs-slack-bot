@@ -1,0 +1,13 @@
+[Unit]
+Description=SKULabs Slack Bot
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/SKULabs-slack-bot
+ExecStart=/usr/bin/python3 bots.py
+Restart=always
+RestartSec=10
+EnvironmentFile=/opt/SKULabs-slack-bot/.env
+
+[Install]
+WantedBy=multi-user.target
