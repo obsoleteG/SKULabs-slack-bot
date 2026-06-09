@@ -61,11 +61,11 @@ def handle_hold_message(message, say, client):
             # Build a reply for the Slack thread
             if found_in == "active_picklist":
                 if fulfilled:
-                    msg = f":rotating_light: *#{order_number} HOLD* — Fulfillots. (Picklist {batch_label})"
+                    msg = f":rotating_light: *#{order_number} HOLD* — Fulfillots. Pievienots HOLD sarakstam. (Picklist {batch_label})"
                 elif label:
-                    msg = f":warning: *#{order_number} HOLD* — Labeli izprintēti, vēl pikojas. (Picklist {batch_label})"
+                    msg = f":warning: *#{order_number} HOLD* — Labeli izprintēti, vēl pikojas. Pievienots HOLD sarakstam. (Picklist {batch_label})"
                 else:
-                    msg = f":white_check_mark: *#{order_number} HOLD* — Pikojas, nav labeli izdrukāti. (Picklist {batch_label})"
+                    msg = f":white_check_mark: *#{order_number} HOLD* — Pikojas, nav labeli izdrukāti. Pievienots HOLD sarakstam. (Picklist {batch_label})"
             elif found_in == "finished_picklist":
                 msg = f":rotating_light: *#{order_number} HOLD* — Sapikots. (Picklist {batch_label})"
             elif found_in == "shopify_only":
