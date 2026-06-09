@@ -61,26 +61,19 @@ def handle_hold_message(message, say, client):
             # Build a reply for the Slack thread
             if found_in == "active_picklist":
                 if fulfilled:
-                    msg = (f":rotating_light: *#{order_number} HOLD* — was in active picklist "
-                           f"*{batch_label}* and already fulfilled! At risk of shipping.")
+                    msg = f":rotating_light: *#{order_number} HOLD* — Fulfillots. (Picklist {batch_label})"
                 elif label:
-                    msg = (f":warning: *#{order_number} HOLD* — removed from active picklist "
-                           f"*{batch_label}* (label already printed, not yet fulfilled).")
+                    msg = f":warning: *#{order_number} HOLD* — Labeli izprintēti, vēl pikojas. (Picklist {batch_label})"
                 else:
-                    msg = (f":white_check_mark: *#{order_number} HOLD* — removed from active "
-                           f"picklist *{batch_label}* before labels were printed.")
+                    msg = f":white_check_mark: *#{order_number} HOLD* — Pikojas, nav labeli izdrukāti. (Picklist {batch_label})"
             elif found_in == "finished_picklist":
-                msg = (f":rotating_light: *#{order_number} HOLD* — order is in a FINISHED "
-                       f"picklist *{batch_label}*. May already be shipped!")
+                msg = f":rotating_light: *#{order_number} HOLD* — Sapikots. (Picklist {batch_label})"
             elif found_in == "shopify_only":
-                msg = (f":bookmark: *#{order_number} HOLD* — not in any picklist yet. "
-                       f"Tagged as HOLD in Shopify. Will be blocked from picking.")
+                msg = f":bookmark: *#{order_number} HOLD* — Orderi redzu tikai Shopify. Pievienoju HOLD sarakstam."
             elif found_in == "order_pool":
-                msg = (f":no_entry: *#{order_number} HOLD* — removed from order pool. "
-                       f"Cannot be added to any picklist.")
+                msg = f":no_entry: *#{order_number} HOLD* — Pievienots HOLD sarakstam."
             else:
-                msg = (f":question: *#{order_number} HOLD* — order not found in system yet. "
-                       f"Will be blocked if it appears.")
+                msg = f":question: *#{order_number} HOLD* — Nekur neatrodu tādu orderi."
 
             # Reply in thread
             client.chat_postMessage(channel=channel, thread_ts=ts, text=msg)
