@@ -61,19 +61,19 @@ def handle_hold_message(message, say, client):
             # Build a reply for the Slack thread
             if found_in == "active_picklist":
                 if fulfilled:
-                    msg = f":rotating_light: *#{order_number} HOLD* — Fulfillots. Pievienots HOLD sarakstam. (Picklist {batch_label})"
+                    msg = f"Fulfillots. Pievienots HOLD sarakstam. :white_check_mark: (Picklist {batch_label})"
                 elif label:
-                    msg = f":warning: *#{order_number} HOLD* — Labeli izprintēti, vēl pikojas. Pievienots HOLD sarakstam. (Picklist {batch_label})"
+                    msg = f"Labeli izprintēti, vēl pikojas. Pievienots HOLD sarakstam. :white_check_mark: (Picklist {batch_label})"
                 else:
-                    msg = f":white_check_mark: *#{order_number} HOLD* — Pikojas, nav labeli izdrukāti. Pievienots HOLD sarakstam. (Picklist {batch_label})"
+                    msg = f"Pikojas, nav labeli izdrukāti. Pievienots HOLD sarakstam. :white_check_mark: (Picklist {batch_label})"
             elif found_in == "finished_picklist":
-                msg = f":rotating_light: *#{order_number} HOLD* — Sapikots. (Picklist {batch_label})"
+                msg = f"Sapikots. Jāmekle pie izsūtāmajiem :rotating_light: (Picklist {batch_label})"
             elif found_in == "shopify_only":
-                msg = f":bookmark: *#{order_number} HOLD* — Orderi redzu tikai Shopify. Pievienoju HOLD sarakstam."
+                msg = f"Orderi redzu tikai Shopify. Pievienoju HOLD sarakstam. :white_check_mark:"
             elif found_in == "order_pool":
-                msg = f":no_entry: *#{order_number} HOLD* — Pievienots HOLD sarakstam."
+                msg = f"Pievienots HOLD sarakstam. :white_check_mark:"
             else:
-                msg = f":question: *#{order_number} HOLD* — Nekur neatrodu tādu orderi."
+                msg = f"Nekur neatrodu tādu orderi. :question:"
 
             # Reply in thread
             client.chat_postMessage(channel=channel, thread_ts=ts, text=msg)
