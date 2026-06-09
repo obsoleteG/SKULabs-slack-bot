@@ -19,8 +19,8 @@ RAINSIS_URL = os.environ.get("RAINSIS_URL", "http://localhost:8000")
 HOLD_BOT_SECRET = os.environ.get("HOLD_BOT_SECRET", "")
 SUPPORT_CHANNEL_ID = os.environ.get("SUPPORT_CHANNEL_ID", "")  # optional: restrict to one channel
 
-# Pattern: #12345 HOLD  or  EXC-72329-1-1 HOLD  (case-insensitive, flexible whitespace)
-_HOLD_PATTERN = re.compile(r"(#\d+|[A-Z]{2,}-[\d][\d\-]*)\s+HOLD\b", re.IGNORECASE)
+# Pattern: #12345 HOLD  or  EXC-72329-1-1 HOLD  or  #EXC-72329-1-1 HOLD
+_HOLD_PATTERN = re.compile(r"(#\d+|#?[A-Z]{2,}-[\d][\d\-]*)\s+HOLD\b", re.IGNORECASE)
 
 
 @app.message(_HOLD_PATTERN)
