@@ -23,13 +23,19 @@ SUPPORT_CHANNEL_ID = os.environ.get("SUPPORT_CHANNEL_ID", "")  # optional: restr
 _HOLD_PATTERN = re.compile(r"(#\d+|#?[A-Z]{2,}-[\d][\d\-]*)\s+HOLD\b", re.IGNORECASE)
 
 
-@app.message(_HOLD_PATTERN)
-def handle_hold_message(message, say, client):
+@app.event("message")
+def handle_hold_message(event, client):
     """Detect '#XXXXX HOLD' messages and register the hold in RainSis."""
+    message = event
+    # Ignore edits, deletions, etc.
+    if message.get("subtype"):
+        return
     channel = message.get("channel", "")
     ts = message.get("ts", "")
     user = message.get("user", "")
     text = message.get("text", "")
+    if not _HOLD_PATTERN.search(text):
+        return
 
     # Optionally restrict to the #support channel
     if SUPPORT_CHANNEL_ID and channel != SUPPORT_CHANNEL_ID:
