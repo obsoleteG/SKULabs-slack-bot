@@ -23,19 +23,13 @@ SUPPORT_CHANNEL_ID = os.environ.get("SUPPORT_CHANNEL_ID", "")  # optional: restr
 _HOLD_PATTERN = re.compile(r"(#\d+|#?[A-Z]{2,}-[\d][\d\-]*)\s+HOLD\b", re.IGNORECASE)
 
 
-@app.event("message")
-def handle_hold_message(event, client):
+@app.message(_HOLD_PATTERN)
+def handle_hold_message(message, say, client):
     """Detect '#XXXXX HOLD' messages and register the hold in RainSis."""
-    message = event
-    # Ignore edits, deletions, etc.
-    if message.get("subtype"):
-        return
     channel = message.get("channel", "")
     ts = message.get("ts", "")
     user = message.get("user", "")
     text = message.get("text", "")
-    if not _HOLD_PATTERN.search(text):
-        return
 
     # Optionally restrict to the #support channel
     if SUPPORT_CHANNEL_ID and channel != SUPPORT_CHANNEL_ID:
@@ -99,6 +93,11 @@ def handle_hold_message(event, client):
                 channel=channel, thread_ts=ts,
                 text=f"Neizdevās apstrādāt HOLD #{order_number}. :x: Kļūda: {exc}"
             )
+
+
+@app.event("message")
+def handle_message_events(body, logger):
+    pass  # Silence unhandled message_changed / message_deleted events
 
 
 @app.command("/sku")
