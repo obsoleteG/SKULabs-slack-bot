@@ -85,6 +85,7 @@ def handle_hold_message(message, say, client):
                 msg = f"Nekur neatrodu tādu orderi. :question:"
 
             # Reply in thread
+            logger.info("HOLD sending reply for #%s: %r", order_number, msg)
             client.chat_postMessage(channel=channel, thread_ts=ts, text=msg)
             logger.info("HOLD registered for #%s: found_in=%s action=%s", order_number, found_in, action)
         except Exception as exc:
@@ -93,11 +94,6 @@ def handle_hold_message(message, say, client):
                 channel=channel, thread_ts=ts,
                 text=f"Neizdevās apstrādāt HOLD #{order_number}. :x: Kļūda: {exc}"
             )
-
-
-@app.event("message")
-def handle_message_events(body, logger):
-    pass  # Silence unhandled message_changed / message_deleted events
 
 
 @app.command("/sku")
