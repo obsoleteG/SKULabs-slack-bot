@@ -58,6 +58,14 @@ def handle_hold_message(message, say, client):
             batch_label = data.get("batch_label", "")
             fulfilled = data.get("shopify_fulfilled", False)
             label = data.get("label_printed", False)
+            duplicate = data.get("duplicate", False)
+            created_at = data.get("created_at", "")[:16].replace("T", " ") if data.get("created_at") else ""
+
+            # Duplicate — already on HOLD
+            if duplicate:
+                msg = f"Tika pievienots HOLD sarakstam {created_at}. :white_check_mark:"
+                client.chat_postMessage(channel=channel, thread_ts=ts, text=msg)
+                continue
 
             # Build a reply for the Slack thread
             if found_in == "active_picklist":
