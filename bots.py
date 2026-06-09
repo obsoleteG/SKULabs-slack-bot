@@ -37,6 +37,7 @@ def handle_hold_message(message, say, client):
 
     matches = _HOLD_PATTERN.findall(text)
     for order_number in matches:
+        order_number = order_number.lstrip("#")
         logger.info("HOLD detected: order #%s in channel %s", order_number, channel)
         try:
             resp = requests.post(
@@ -82,7 +83,7 @@ def handle_hold_message(message, say, client):
             logger.exception("Failed to register HOLD for #%s: %s", order_number, exc)
             client.chat_postMessage(
                 channel=channel, thread_ts=ts,
-                text=f":x: Failed to process HOLD for #{order_number}: {exc}"
+                text=f"Neizdevās apstrādāt HOLD #{order_number}. :x: Kļūda: {exc}"
             )
 
 
