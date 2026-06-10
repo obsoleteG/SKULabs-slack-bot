@@ -17,7 +17,8 @@ skulabs = SKULabsClient(os.environ["SKULABS_API_KEY"])
 
 RAINSIS_URL = os.environ.get("RAINSIS_URL", "http://localhost:8000")
 HOLD_BOT_SECRET = os.environ.get("HOLD_BOT_SECRET", "")
-SUPPORT_CHANNEL_ID = os.environ.get("SUPPORT_CHANNEL_ID", "")  # optional: restrict to one channel
+_raw_channels = os.environ.get("SUPPORT_CHANNEL_ID", "")
+SUPPORT_CHANNEL_IDS: set[str] = {c.strip() for c in _raw_channels.split(",") if c.strip()}
 
 # Pattern: #12345 HOLD  or  EXC-72329-1-1 HOLD  or  #EXC-72329-1-1 HOLD
 _HOLD_PATTERN = re.compile(r"(#\d+|#?[A-Z]{2,}-[\d][\d\-]*)\s+HOLD\b", re.IGNORECASE)
@@ -31,8 +32,8 @@ def handle_hold_message(message, say, client):
     user = message.get("user", "")
     text = message.get("text", "")
 
-    # Optionally restrict to the #support channel
-    if SUPPORT_CHANNEL_ID and channel != SUPPORT_CHANNEL_ID:
+    # Optionally restrict to configured channels
+    if SUPPORT_CHANNEL_IDS and channel not in SUPPORT_CHANNEL_IDS:
         return
 
     matches = _HOLD_PATTERN.findall(text)
