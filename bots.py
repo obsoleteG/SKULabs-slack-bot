@@ -19,6 +19,7 @@ RAINSIS_URL = os.environ.get("RAINSIS_URL", "http://localhost:8000")
 HOLD_BOT_SECRET = os.environ.get("HOLD_BOT_SECRET", "")
 _raw_channels = os.environ.get("CHANNEL_IDS", "")
 SUPPORT_CHANNEL_IDS: set[str] = {c.strip() for c in _raw_channels.split(",") if c.strip()}
+HISTORY_SCAN_CHANNEL_ID = os.environ.get("HISTORY_SCAN_CHANNEL_ID", "")
 
 # Pattern: #12345 HOLD  or  EXC-72329-1-1 HOLD  or  #EXC-72329-1-1 HOLD
 _HOLD_PATTERN = re.compile(r"(#\d+|#?[A-Z]{2,}-[\d][\d\-]*)\s+HOLD\b", re.IGNORECASE)
@@ -158,14 +159,14 @@ def handle_sku(ack, respond, command):
 
 
 def _scan_channel_history(client) -> None:
-    """On startup, scan the last 100 messages in each configured channel.
+    """On startup, scan the last 100 messages in HISTORY_SCAN_CHANNEL_ID.
 
     Registers any unhandled HOLDs — RainSis deduplicates so already-registered
     ones are silently skipped.
     """
-    if not SUPPORT_CHANNEL_IDS:
+    if not HISTORY_SCAN_CHANNEL_ID:
         return
-    for channel_id in SUPPORT_CHANNEL_IDS:
+    for channel_id in [HISTORY_SCAN_CHANNEL_ID]:
         try:
             resp = client.conversations_history(channel=channel_id, limit=100)
             messages = resp.get("messages", [])
