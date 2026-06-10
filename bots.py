@@ -20,9 +20,63 @@ HOLD_BOT_SECRET = os.environ.get("HOLD_BOT_SECRET", "")
 _raw_channels = os.environ.get("CHANNEL_IDS", "")
 SUPPORT_CHANNEL_IDS: set[str] = {c.strip() for c in _raw_channels.split(",") if c.strip()}
 HISTORY_SCAN_CHANNEL_ID = os.environ.get("HISTORY_SCAN_CHANNEL_ID", "")
+RIGA_WAREHOUSE_CHANNEL_ID = os.environ.get("RIGA_WAREHOUSE_CHANNEL_ID", "C08K0GKECQ5")
 
 # Pattern: #12345 HOLD  or  EXC-72329-1-1 HOLD  or  #EXC-72329-1-1 HOLD
 _HOLD_PATTERN = re.compile(r"(#\d+|#?[A-Z]{2,}-[\d][\d\-]*)\s+HOLD\b", re.IGNORECASE)
+
+# ---------------------------------------------------------------------------
+# Tracking number patterns — ordered most-specific to least-specific
+# ---------------------------------------------------------------------------
+_TRACKING_PATTERNS = [
+    # ── Unambiguous prefix/suffix patterns ───────────────────────────────────
+    ("ups",            "UPS",            re.compile(r"\b1Z[A-Z0-9]{16}\b")),
+    ("venipak",        "Venipak",        re.compile(r"\bV[0-9]{5}[A-Z][0-9]{7}\b")),
+    ("dhl-express",    "DHL Express",    re.compile(r"\bJD[0-9]{18}\b")),
+    ("cainiao",        "Cainiao",        re.compile(r"\bLP[0-9]{12,18}\b")),
+    ("cainiao",        "Cainiao",        re.compile(r"\bUR[0-9]{9}CN\b")),
+    # International postal XX[0-9]{9}CC — specific country codes
+    ("latvijas-pasts", "Latvijas Pasts", re.compile(r"\bC[A-Z][0-9]{9}LV\b")),
+    ("latvijas-pasts", "Latvijas Pasts", re.compile(r"\b[A-Z]{2}[0-9]{9}LV\b")),
+    ("omniva",         "Omniva",         re.compile(r"\b[A-Z]{2}[0-9]{9}EE\b")),
+    ("itella",         "Itella",         re.compile(r"\b[A-Z]{2}[0-9]{9}FI\b")),
+    ("postnl",         "PostNL",         re.compile(r"\b[A-Z]{2}[0-9]{9}NL\b")),
+    ("china-post",     "China Post",     re.compile(r"\b[A-Z]{2}[0-9]{9}CN\b")),
+    ("post-de",        "Deutsche Post",  re.compile(r"\b[A-Z]{2}[0-9]{9}DE\b")),
+    ("usps",           "USPS",           re.compile(r"\b9[0-9]{21}\b")),
+    ("nova-poshta",    "Nova Post",      re.compile(r"\b59[0-9]{12}\b")),
+    ("dpd",            "DPD",            re.compile(r"\b[01][0-9]{13}\b")),
+    # ── Ambiguous numeric-only (match last) ──────────────────────────────────
+    ("fedex",          "FedEx",          re.compile(r"\b[0-9]{15}\b")),
+    ("fedex",          "FedEx",          re.compile(r"\b[0-9]{12}\b")),
+    ("dhl-express",    "DHL Express",    re.compile(r"\b[0-9]{10}\b")),
+    ("gls",            "GLS",            re.compile(r"\b[0-9]{8}\b")),
+]
+
+def _extract_trackings(text: str) -> list[dict]:
+    found, seen = [], set()
+    for slug, name, pat in _TRACKING_PATTERNS:
+        for m in pat.finditer(text):
+            num = m.group(0)
+            if num not in seen:
+                seen.add(num)
+                found.append({"tracking_number": num, "carrier_slug": slug, "carrier": name})
+    return found
+
+def _extract_receiver(text: str) -> str:
+    """Return first <@UXXXXXX> mention from Slack message text."""
+    m = re.search(r"<@([A-Z0-9]+)>", text)
+    return m.group(1) if m else ""
+
+def _resolve_display_name(client, user_id: str) -> str:
+    if not user_id:
+        return ""
+    try:
+        info = client.users_info(user=user_id)
+        profile = info["user"]["profile"]
+        return profile.get("display_name") or profile.get("real_name") or user_id
+    except Exception:
+        return user_id
 
 
 @app.message(_HOLD_PATTERN)
@@ -98,13 +152,79 @@ def handle_hold_message(message, say, client):
             )
 
 
+def _fetch_thread(client, channel: str, thread_ts: str) -> list:
+    """Fetch all replies in a thread."""
+    try:
+        resp = client.conversations_replies(channel=channel, ts=thread_ts)
+        return resp.get("messages", [])
+    except Exception as exc:
+        logger.warning("Failed to fetch thread %s: %s", thread_ts, exc)
+        return []
+
+
 @app.event("message")
-def handle_unmatched_messages(event, logger):
-    """Catch-all to silence 'Unhandled request' warnings for non-HOLD messages."""
+def handle_unmatched_messages(event, client):
+    """Catch-all: scans #riga-warehouse messages for tracking numbers + handles thread updates."""
+    channel = event.get("channel", "")
     subtype = event.get("subtype")
     text = event.get("text", "")
-    if subtype is None and _HOLD_PATTERN.search(text):
-        logger.warning("HOLD pattern seen in catch-all but missed by @app.message — text: %r", text)
+    ts = event.get("ts", "")
+    thread_ts = event.get("thread_ts", "")
+
+    # Thread reply to a tracked shipment message
+    if thread_ts and thread_ts != ts and channel == RIGA_WAREHOUSE_CHANNEL_ID:
+        thread = _fetch_thread(client, channel, thread_ts)
+        try:
+            requests.post(
+                f"{RAINSIS_URL}/api/warehouse/inhouse-shipments/thread-update",
+                json={"slack_message_ts": thread_ts, "thread": thread},
+                headers={"X-Bot-Token": HOLD_BOT_SECRET},
+                timeout=10,
+            )
+        except Exception as exc:
+            logger.warning("Thread update failed: %s", exc)
+        return
+
+    if subtype is not None or channel != RIGA_WAREHOUSE_CHANNEL_ID:
+        if subtype is None and _HOLD_PATTERN.search(text):
+            logger.warning("HOLD pattern seen in catch-all but missed by @app.message — text: %r", text)
+        return
+
+    # Scan for tracking numbers
+    trackings = _extract_trackings(text)
+    if not trackings:
+        return
+
+    receiver_id = _extract_receiver(text)
+    sender_id = event.get("user", "")
+    receiver_name = _resolve_display_name(client, receiver_id)
+    sender_name = _resolve_display_name(client, sender_id)
+
+    for t in trackings:
+        try:
+            resp = requests.post(
+                f"{RAINSIS_URL}/api/warehouse/inhouse-shipments/register",
+                json={
+                    "tracking_number": t["tracking_number"],
+                    "carrier_slug": t["carrier_slug"],
+                    "carrier": t["carrier"],
+                    "receiver_slack_id": receiver_id,
+                    "receiver_name": receiver_name,
+                    "sender_slack_id": sender_id,
+                    "sender_name": sender_name,
+                    "slack_channel": channel,
+                    "slack_message_ts": ts,
+                    "slack_text": text,
+                },
+                headers={"X-Bot-Token": HOLD_BOT_SECRET},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if not data.get("duplicate"):
+                logger.info("Registered shipment %s (%s) for %s", t["tracking_number"], t["carrier"], receiver_name or sender_name)
+        except Exception as exc:
+            logger.warning("Failed to register shipment %s: %s", t["tracking_number"], exc)
 
 
 @app.command("/sku")
