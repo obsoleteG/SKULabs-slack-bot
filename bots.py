@@ -17,7 +17,7 @@ skulabs = SKULabsClient(os.environ["SKULABS_API_KEY"])
 
 RAINSIS_URL = os.environ.get("RAINSIS_URL", "http://localhost:8000")
 HOLD_BOT_SECRET = os.environ.get("HOLD_BOT_SECRET", "")
-_raw_channels = os.environ.get("SUPPORT_CHANNEL_ID", "")
+_raw_channels = os.environ.get("CHANNEL_IDS", "")
 SUPPORT_CHANNEL_IDS: set[str] = {c.strip() for c in _raw_channels.split(",") if c.strip()}
 
 # Pattern: #12345 HOLD  or  EXC-72329-1-1 HOLD  or  #EXC-72329-1-1 HOLD
@@ -157,5 +157,46 @@ def handle_sku(ack, respond, command):
         respond(f"Error: {e}")
 
 
+def _scan_channel_history(client) -> None:
+    """On startup, scan the last 100 messages in each configured channel.
+
+    Registers any unhandled HOLDs — RainSis deduplicates so already-registered
+    ones are silently skipped.
+    """
+    if not SUPPORT_CHANNEL_IDS:
+        return
+    for channel_id in SUPPORT_CHANNEL_IDS:
+        try:
+            resp = client.conversations_history(channel=channel_id, limit=100)
+            messages = resp.get("messages", [])
+            logger.info("History scan: %d messages in channel %s", len(messages), channel_id)
+            for msg in messages:
+                text = msg.get("text", "")
+                ts = msg.get("ts", "")
+                user = msg.get("user", "")
+                if not _HOLD_PATTERN.search(text):
+                    continue
+                for order_number in _HOLD_PATTERN.findall(text):
+                    order_number = order_number.lstrip("#")
+                    try:
+                        r = requests.post(
+                            f"{RAINSIS_URL}/api/warehouse/hold/register",
+                            json={"order_number": order_number, "slack_channel": channel_id,
+                                  "slack_user": user, "slack_message_ts": ts},
+                            headers={"X-Bot-Token": HOLD_BOT_SECRET},
+                            timeout=10,
+                        )
+                        r.raise_for_status()
+                        data = r.json()
+                        if not data.get("duplicate"):
+                            logger.info("History scan: registered HOLD #%s from channel %s", order_number, channel_id)
+                    except Exception as exc:
+                        logger.warning("History scan: failed to register HOLD #%s: %s", order_number, exc)
+        except Exception as exc:
+            logger.warning("History scan: failed to fetch history for channel %s: %s", channel_id, exc)
+
+
 if __name__ == "__main__":
-    SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
+    handler = SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"])
+    _scan_channel_history(app.client)
+    handler.start()
