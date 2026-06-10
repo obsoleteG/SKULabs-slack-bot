@@ -96,6 +96,15 @@ def handle_hold_message(message, say, client):
             )
 
 
+@app.event("message")
+def handle_unmatched_messages(event, logger):
+    """Catch-all to silence 'Unhandled request' warnings for non-HOLD messages."""
+    subtype = event.get("subtype")
+    text = event.get("text", "")
+    if subtype is None and _HOLD_PATTERN.search(text):
+        logger.warning("HOLD pattern seen in catch-all but missed by @app.message — text: %r", text)
+
+
 @app.command("/sku")
 def handle_sku(ack, respond, command):
     ack()
