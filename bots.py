@@ -103,6 +103,7 @@ def handle_hold_message(message, say, client):
                     "slack_channel": channel,
                     "slack_user": user,
                     "slack_message_ts": ts,
+                    "slack_text": text,
                 },
                 headers={"X-Bot-Token": HOLD_BOT_SECRET},
                 timeout=10,
@@ -171,18 +172,31 @@ def handle_unmatched_messages(event, client):
     ts = event.get("ts", "")
     thread_ts = event.get("thread_ts", "")
 
-    # Thread reply to a tracked shipment message
-    if thread_ts and thread_ts != ts and channel == RIGA_WAREHOUSE_CHANNEL_ID:
+    # Thread reply in a tracked channel
+    if thread_ts and thread_ts != ts:
         thread = _fetch_thread(client, channel, thread_ts)
-        try:
-            requests.post(
-                f"{RAINSIS_URL}/api/warehouse/inhouse-shipments/thread-update",
-                json={"slack_message_ts": thread_ts, "thread": thread},
-                headers={"X-Bot-Token": HOLD_BOT_SECRET},
-                timeout=10,
-            )
-        except Exception as exc:
-            logger.warning("Thread update failed: %s", exc)
+        # Inhouse shipment thread (riga-warehouse)
+        if channel == RIGA_WAREHOUSE_CHANNEL_ID:
+            try:
+                requests.post(
+                    f"{RAINSIS_URL}/api/warehouse/inhouse-shipments/thread-update",
+                    json={"slack_message_ts": thread_ts, "thread": thread},
+                    headers={"X-Bot-Token": HOLD_BOT_SECRET},
+                    timeout=10,
+                )
+            except Exception as exc:
+                logger.warning("Inhouse thread update failed: %s", exc)
+        # Hold order thread (support channels)
+        if SUPPORT_CHANNEL_IDS and channel in SUPPORT_CHANNEL_IDS:
+            try:
+                requests.post(
+                    f"{RAINSIS_URL}/api/warehouse/hold/thread-update",
+                    json={"slack_message_ts": thread_ts, "thread": thread},
+                    headers={"X-Bot-Token": HOLD_BOT_SECRET},
+                    timeout=10,
+                )
+            except Exception as exc:
+                logger.warning("Hold thread update failed: %s", exc)
         return
 
     if subtype is not None or channel != RIGA_WAREHOUSE_CHANNEL_ID:
