@@ -113,6 +113,9 @@ def handle_hold_message(message, say, client):
             found_in = data.get("found_in", "unknown")
             action = data.get("action_taken", "none")
             batch_label = data.get("batch_label", "")
+            warehouse_raw = data.get("warehouse", "")
+            wh_label = "Rīga" if warehouse_raw == "riga" else "Rēzekne" if warehouse_raw == "rezekne" else ""
+            wh_suffix = f" [{wh_label}]" if wh_label else ""
             fulfilled = data.get("shopify_fulfilled", False)
             label = data.get("label_printed", False)
             duplicate = data.get("duplicate", False)
@@ -127,13 +130,13 @@ def handle_hold_message(message, say, client):
             # Build a reply for the Slack thread
             if found_in == "active_picklist":
                 if fulfilled:
-                    msg = f"Fulfillots. Pievienots HOLD sarakstam. :white_check_mark: (Picklist {batch_label})"
+                    msg = f"Fulfillots. Pievienots HOLD sarakstam. :white_check_mark: (Picklist {batch_label}{wh_suffix})"
                 elif label:
-                    msg = f"Labeli izprintēti, vēl pikojas. Pievienots HOLD sarakstam. :white_check_mark: (Picklist {batch_label})"
+                    msg = f"Labeli izprintēti, vēl pikojas. Pievienots HOLD sarakstam. :white_check_mark: (Picklist {batch_label}{wh_suffix})"
                 else:
-                    msg = f"Pikojas, nav labeli izdrukāti. Pievienots HOLD sarakstam. :white_check_mark: (Picklist {batch_label})"
+                    msg = f"Pikojas, nav labeli izdrukāti. Pievienots HOLD sarakstam. :white_check_mark: (Picklist {batch_label}{wh_suffix})"
             elif found_in == "finished_picklist":
-                msg = f"Sapikots. Jāmekle pie izsūtāmajiem :rotating_light: (Picklist {batch_label})"
+                msg = f"Sapikots. Jāmekle pie izsūtāmajiem :rotating_light: (Picklist {batch_label}{wh_suffix})"
             elif found_in == "shopify_only":
                 msg = f"Orderi redzu tikai Shopify. Pievienoju HOLD sarakstam. :white_check_mark:"
             elif found_in == "order_pool":
