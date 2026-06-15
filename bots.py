@@ -17,7 +17,7 @@ skulabs = SKULabsClient(os.environ["SKULABS_API_KEY"])
 
 RAINSIS_URL = os.environ.get("RAINSIS_URL", "http://localhost:8000")
 HOLD_BOT_SECRET = os.environ.get("HOLD_BOT_SECRET", "")
-_raw_channels = os.environ.get("CHANNEL_IDS", "")
+_raw_channels = os.environ.get("CHANNEL_IDS", "") or os.environ.get("SUPPORT_CHANNEL_ID", "")
 SUPPORT_CHANNEL_IDS: set[str] = {c.strip() for c in _raw_channels.split(",") if c.strip()}
 HISTORY_SCAN_CHANNEL_ID = os.environ.get("HISTORY_SCAN_CHANNEL_ID", "")
 RIGA_WAREHOUSE_CHANNEL_ID = os.environ.get("RIGA_WAREHOUSE_CHANNEL_ID", "C08K0GKECQ5")
@@ -84,13 +84,30 @@ def handle_hold_message(message, say, client):
     """Detect '#XXXXX HOLD' messages and register the hold in RainSis."""
     channel = message.get("channel", "")
     ts = message.get("ts", "")
+    thread_ts = message.get("thread_ts", "")
     user = message.get("user", "")
     text = message.get("text", "")
+
+    # Thread replies containing HOLD text should be handled as thread updates, not new HOLDs
+    if thread_ts and thread_ts != ts:
+        thread = _fetch_thread(client, channel, thread_ts)
+        if SUPPORT_CHANNEL_IDS and channel in SUPPORT_CHANNEL_IDS:
+            try:
+                requests.post(
+                    f"{RAINSIS_URL}/api/warehouse/hold/thread-update",
+                    json={"slack_message_ts": thread_ts, "thread": thread},
+                    headers={"X-Bot-Token": HOLD_BOT_SECRET},
+                    timeout=10,
+                )
+            except Exception as exc:
+                logger.warning("Hold thread update (from hold handler) failed: %s", exc)
+        return
 
     # Optionally restrict to configured channels
     if SUPPORT_CHANNEL_IDS and channel not in SUPPORT_CHANNEL_IDS:
         return
 
+    display_user = _resolve_display_name(client, user)
     matches = _HOLD_PATTERN.findall(text)
     for order_number in matches:
         order_number = order_number.lstrip("#")
@@ -101,9 +118,9 @@ def handle_hold_message(message, say, client):
                 json={
                     "order_number": order_number,
                     "slack_channel": channel,
-                    "slack_user": user,
+                    "slack_user": display_user,
                     "slack_message_ts": ts,
-                    "slack_text": text,
+                    "slack_text": _resolve_mentions(text, client),
                 },
                 headers={"X-Bot-Token": HOLD_BOT_SECRET},
                 timeout=10,
@@ -156,11 +173,55 @@ def handle_hold_message(message, say, client):
             )
 
 
+def _resolve_mentions(text: str, client) -> str:
+    for uid in re.findall(r"<@([A-Z0-9]+)>", text):
+        name = _resolve_display_name(client, uid)
+        text = text.replace(f"<@{uid}>", f"@{name}")
+    return text
+
+
+_emoji_cache: dict = {}
+
+def _resolve_custom_emoji(text: str, client) -> str:
+    """Replace :custom_emoji: tokens with __EMOJI_IMG:url__ so the frontend can render them."""
+    names = re.findall(r":([a-zA-Z0-9_\-+]+):", text)
+    if not names:
+        return text
+    global _emoji_cache
+    if not _emoji_cache:
+        try:
+            resp = client.emoji_list()
+            _emoji_cache = resp.get("emoji", {})
+        except Exception as exc:
+            logger.warning("Failed to fetch emoji list: %s", exc)
+            return text
+    for name in names:
+        if name in _emoji_cache:
+            url = _emoji_cache[name]
+            # Follow aliases (alias:other_name)
+            while url.startswith("alias:"):
+                url = _emoji_cache.get(url[6:], url)
+            text = text.replace(f":{name}:", f"__EMOJI_IMG:{url}__")
+    return text
+
+
 def _fetch_thread(client, channel: str, thread_ts: str) -> list:
-    """Fetch all replies in a thread."""
+    """Fetch all human replies, resolving @mentions and custom emoji."""
     try:
         resp = client.conversations_replies(channel=channel, ts=thread_ts)
-        return resp.get("messages", [])
+        messages = resp.get("messages", [])
+        result = []
+        for msg in messages:
+            # Skip bot messages (our own replies)
+            if msg.get("bot_id") or msg.get("subtype") == "bot_message":
+                continue
+            if msg.get("text"):
+                msg["text"] = _resolve_mentions(msg["text"], client)
+                msg["text"] = _resolve_custom_emoji(msg["text"], client)
+            if msg.get("user"):
+                msg["user"] = _resolve_display_name(client, msg["user"])
+            result.append(msg)
+        return result
     except Exception as exc:
         logger.warning("Failed to fetch thread %s: %s", thread_ts, exc)
         return []
@@ -320,7 +381,8 @@ def _scan_channel_history(client) -> None:
                         r = requests.post(
                             f"{RAINSIS_URL}/api/warehouse/hold/register",
                             json={"order_number": order_number, "slack_channel": channel_id,
-                                  "slack_user": user, "slack_message_ts": ts},
+                                  "slack_user": _resolve_display_name(client, user), "slack_message_ts": ts,
+                                  "slack_text": _resolve_mentions(text, client)},
                             headers={"X-Bot-Token": HOLD_BOT_SECRET},
                             timeout=10,
                         )
