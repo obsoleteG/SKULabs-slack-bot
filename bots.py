@@ -298,7 +298,7 @@ def handle_unmatched_messages(event, client):
                     "slack_text": text,
                 },
                 headers={"X-Bot-Token": HOLD_BOT_SECRET},
-                timeout=10,
+                timeout=20,
             )
             resp.raise_for_status()
             data = resp.json()
@@ -433,7 +433,7 @@ def _catch_up_tracking(client) -> None:
                         "slack_text": text,
                     },
                     headers={"X-Bot-Token": HOLD_BOT_SECRET},
-                    timeout=10,
+                    timeout=20,
                 )
                 r.raise_for_status()
                 data = r.json()
