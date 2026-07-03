@@ -391,11 +391,25 @@ def _catch_up_tracking(client) -> None:
         return
     state = _load_state()
     oldest = state.get("last_scan_ts", "")
+
+    if not oldest:
+        # Cold start (no persisted state yet) — seed the watermark at "now"
+        # instead of scanning history. We only want to catch messages missed
+        # during a live reconnect gap, not resurrect the channel's backlog.
+        try:
+            resp = client.conversations_history(channel=RIGA_WAREHOUSE_CHANNEL_ID, limit=1)
+            messages = resp.get("messages", [])
+            latest_ts = messages[0]["ts"] if messages else f"{int(time.time())}.000000"
+        except Exception as exc:
+            logger.warning("Catch-up scan: failed to seed watermark: %s", exc)
+            return
+        state["last_scan_ts"] = latest_ts
+        _save_state(state)
+        logger.info("Catch-up: seeded watermark at %s (no backfill)", latest_ts)
+        return
+
     try:
-        kwargs = {"channel": RIGA_WAREHOUSE_CHANNEL_ID, "limit": 200}
-        if oldest:
-            kwargs["oldest"] = oldest
-        resp = client.conversations_history(**kwargs)
+        resp = client.conversations_history(channel=RIGA_WAREHOUSE_CHANNEL_ID, oldest=oldest, limit=200)
         messages = resp.get("messages", [])
     except Exception as exc:
         logger.warning("Catch-up scan: failed to fetch history: %s", exc)
