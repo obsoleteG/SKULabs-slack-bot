@@ -2,6 +2,8 @@ import os
 import json
 import re
 import logging
+import threading
+import time
 import requests
 from dotenv import load_dotenv
 from slack_bolt import App
@@ -45,6 +47,7 @@ _TRACKING_PATTERNS = [
     ("post-de",        "Deutsche Post",  re.compile(r"\b[A-Z]{2}[0-9]{9}DE\b")),
     ("usps",           "USPS",           re.compile(r"\b9[0-9]{21}\b")),
     ("nova-poshta",    "Nova Post",      re.compile(r"\b59[0-9]{12}\b")),
+    ("novapost",       "Nova Post",      re.compile(r"\bSHLV[0-9]{10}\b")),
     ("dpd",            "DPD",            re.compile(r"\b[01][0-9]{13}\b")),
     # ── Ambiguous numeric-only (match last) ──────────────────────────────────
     ("fedex",          "FedEx",          re.compile(r"\b[0-9]{15}\b")),
@@ -356,6 +359,103 @@ def handle_sku(ack, respond, command):
         respond(f"Error: {e}")
 
 
+_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".bot_state.json")
+
+
+def _load_state() -> dict:
+    try:
+        with open(_STATE_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_state(state: dict) -> None:
+    try:
+        with open(_STATE_FILE, "w") as f:
+            json.dump(state, f)
+    except Exception as exc:
+        logger.warning("Failed to save bot state: %s", exc)
+
+
+def _catch_up_tracking(client) -> None:
+    """Re-scan riga-warehouse history since the last-seen message.
+
+    Socket Mode can silently drop events during a reconnect (this Mac Mini has
+    no Ethernet, only Wi-Fi, so disconnects happen). Polling history on an
+    interval catches anything the live handler missed, instead of relying on
+    Slack's reconnect event firing cleanly. RainSis dedupes by tracking number
+    server-side, so re-registering an already-known shipment is a no-op.
+    """
+    if not RIGA_WAREHOUSE_CHANNEL_ID:
+        return
+    state = _load_state()
+    oldest = state.get("last_scan_ts", "")
+    try:
+        kwargs = {"channel": RIGA_WAREHOUSE_CHANNEL_ID, "limit": 200}
+        if oldest:
+            kwargs["oldest"] = oldest
+        resp = client.conversations_history(**kwargs)
+        messages = resp.get("messages", [])
+    except Exception as exc:
+        logger.warning("Catch-up scan: failed to fetch history: %s", exc)
+        return
+
+    latest_ts = oldest
+    for msg in messages:
+        ts = msg.get("ts", "")
+        if ts and (not latest_ts or float(ts) > float(latest_ts)):
+            latest_ts = ts
+        if msg.get("subtype") is not None or msg.get("thread_ts"):
+            continue
+        text = msg.get("text", "")
+        trackings = _extract_trackings(text)
+        if not trackings:
+            continue
+        receiver_id = _extract_receiver(text)
+        sender_id = msg.get("user", "")
+        receiver_name = _resolve_display_name(client, receiver_id)
+        sender_name = _resolve_display_name(client, sender_id)
+        for t in trackings:
+            try:
+                r = requests.post(
+                    f"{RAINSIS_URL}/api/warehouse/inhouse-shipments/register",
+                    json={
+                        "tracking_number": t["tracking_number"],
+                        "carrier_slug": t["carrier_slug"],
+                        "carrier": t["carrier"],
+                        "receiver_slack_id": receiver_id,
+                        "receiver_name": receiver_name,
+                        "sender_slack_id": sender_id,
+                        "sender_name": sender_name,
+                        "slack_channel": RIGA_WAREHOUSE_CHANNEL_ID,
+                        "slack_message_ts": ts,
+                        "slack_text": text,
+                    },
+                    headers={"X-Bot-Token": HOLD_BOT_SECRET},
+                    timeout=10,
+                )
+                r.raise_for_status()
+                data = r.json()
+                if not data.get("duplicate"):
+                    logger.info("Catch-up: registered shipment %s (%s) for %s", t["tracking_number"], t["carrier"], receiver_name or sender_name)
+            except Exception as exc:
+                logger.warning("Catch-up: failed to register shipment %s: %s", t["tracking_number"], exc)
+
+    if latest_ts and latest_ts != oldest:
+        state["last_scan_ts"] = latest_ts
+        _save_state(state)
+
+
+def _catch_up_loop(client, interval_seconds: int = 180) -> None:
+    while True:
+        time.sleep(interval_seconds)
+        try:
+            _catch_up_tracking(client)
+        except Exception as exc:
+            logger.warning("Catch-up loop error: %s", exc)
+
+
 def _scan_channel_history(client) -> None:
     """On startup, scan the last 100 messages in HISTORY_SCAN_CHANNEL_ID.
 
@@ -399,4 +499,6 @@ def _scan_channel_history(client) -> None:
 if __name__ == "__main__":
     handler = SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"])
     _scan_channel_history(app.client)
+    _catch_up_tracking(app.client)
+    threading.Thread(target=_catch_up_loop, args=(app.client,), daemon=True).start()
     handler.start()
